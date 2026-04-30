@@ -25,6 +25,7 @@ phase_i       = st.Page("pages/02_Phase_I.py",        title="Phase I Study", ico
 final_charts  = st.Page("pages/03_Final_Charts.py",   title="Final Charts",  icon="📈")
 capability    = st.Page("pages/04_Capability.py",     title="Capability",    icon="⚙️")
 audit_trail   = st.Page("pages/05_Audit_Trail.py",    title="Audit Trail",   icon="📋")
+documentation = st.Page("pages/06_Documentation.py",  title="Documentation", icon="📚")
 
-pg = st.navigation([home, data_import, phase_i, final_charts, capability, audit_trail])
+pg = st.navigation([home, data_import, phase_i, final_charts, capability, audit_trail, documentation])
 pg.run()
