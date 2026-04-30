@@ -86,8 +86,17 @@ st.subheader("Iteration Detail")
 removed_so_far = pd.Series(dtype=float)
 
 for snap in result.iterations:
-    retained_vals = values.loc[snap.retained_indices].dropna()
+    # Restore original labels (dates, IDs) onto the integer-indexed stored values
+    retained_vals = snap.retained_values.copy()
+    orig_idx = result.original_labels[snap.retained_indices]
+    retained_vals.index = orig_idx
     mr = compute_moving_range(retained_vals)
+
+    # Relabel violation Series to match the date/label index so chart reindex works
+    ind_viol = snap.individual_violations.copy()
+    ind_viol.index = orig_idx
+    mr_viol = snap.mr_violations.copy()
+    mr_viol.index = orig_idx
 
     label = (
         f"Iteration {snap.iteration}  —  "
@@ -100,7 +109,7 @@ for snap in result.iterations:
         lim_df = pd.DataFrame(
             {
                 "Chart": ["I"] * 5 + ["MR"] * 2,
-                "Line": ["UCL", "UWL", "CL", "LWL", "LCL", "UCL", "CL"],
+                "Line": ["UAL", "UWL", "CL", "LWL", "LAL", "UAL", "CL"],
                 "Value": [
                     lim["i_ucl"], lim["i_uwl"], lim["i_cl"],
                     lim["i_lwl"], lim["i_lcl"],
@@ -115,8 +124,8 @@ for snap in result.iterations:
             retained_vals,
             mr,
             lim,
-            violations=snap.individual_violations,
-            mr_violations=snap.mr_violations,
+            violations=ind_viol,
+            mr_violations=mr_viol,
             removed_values=removed_so_far if not removed_so_far.empty else None,
             title=f"I-MR — Iteration {snap.iteration}",
         )
@@ -125,17 +134,21 @@ for snap in result.iterations:
         # Violation table
         if snap.n_removed_this_iter > 0:
             st.markdown("**Points flagged for removal:**")
-            viol_display = snap.individual_violations[
-                snap.individual_violations["any_violation"]
-            ][["rule1", "rule2", "rule3", "rule4"]].copy()
-            viol_display.insert(0, "value", retained_vals.reindex(viol_display.index))
+            viol_mask_bool = snap.individual_violations["any_violation"].to_numpy()
+            viol_display = snap.individual_violations.iloc[viol_mask_bool][
+                ["rule1", "rule2", "rule3", "rule4"]
+            ].copy()
+            # Insert values using positional access, then relabel index for display
+            viol_display.insert(0, "value", snap.retained_values.iloc[viol_mask_bool].values)
+            viol_display.index = result.original_labels[
+                snap.individual_violations.index[viol_mask_bool]
+            ]
             st.dataframe(viol_display, use_container_width=True)
 
     # Accumulate removed ghost points for next iteration
     if snap.removed_indices:
-        removed_so_far = pd.concat([
-            removed_so_far,
-            values.loc[snap.removed_indices].dropna(),
-        ])
+        removed_vals = snap.retained_values.loc[snap.removed_indices].copy()
+        removed_vals.index = result.original_labels[snap.removed_indices]
+        removed_so_far = pd.concat([removed_so_far, removed_vals])
 
 st.success("Navigate to **Final Charts** or **Capability** to continue.")

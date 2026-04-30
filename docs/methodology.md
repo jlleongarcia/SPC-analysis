@@ -48,19 +48,19 @@ where $\overline{MR}$ is the average of all moving ranges.
 
 | Line | Formula |
 |------|---------|
-| UCL (Action) | $\bar{x} + 3\hat{\sigma}$ |
+| UAL (Action) | $\bar{x} + 3\hat{\sigma}$ |
 | UWL (Warning) | $\bar{x} + 2\hat{\sigma}$ |
 | CL | $\bar{x}$ |
 | LWL (Warning) | $\bar{x} - 2\hat{\sigma}$ |
-| LCL (Action) | $\bar{x} - 3\hat{\sigma}$ |
+| LAL (Action) | $\bar{x} - 3\hat{\sigma}$ |
 
 ### Moving Range chart
 
 | Line | Formula |
 |------|---------|
-| UCL | $D_4 \cdot \overline{MR}$ |
+| UAL | $D_4 \cdot \overline{MR}$ |
 | CL | $\overline{MR}$ |
-| LCL | 0 (always for n=2) |
+| LAL | 0 (always for n=2) |
 
 where $D_4 = 3.267$ for n = 2.
 
@@ -73,7 +73,7 @@ Rules are applied to the **Individual** chart. Rule 1 is also applied to the
 
 ### Rule 1 — Action Limits
 
-$$x_i > UCL \quad \text{or} \quad x_i < LCL$$
+$$x_i > UAL \quad \text{or} \quad x_i < LAL$$
 
 Any single point beyond ±3σ from the centre line. The probability of a false
 alarm on a single point (under normality) is approximately 0.27%.
@@ -123,7 +123,7 @@ FOR iteration = 1 TO M:
     5. IF flagged is empty:
            RETURN (converged, current limits, retained, audit trail)
     6. Log each flagged point with: iteration, value, rules violated,
-       X̄, UCL, LCL at time of removal
+       X̄, UAL, LAL at time of removal
     7. retained ← retained \ flagged
 
 RETURN (not converged, current limits, retained, audit trail)

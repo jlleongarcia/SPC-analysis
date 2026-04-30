@@ -19,8 +19,12 @@ if "phase_i_result" not in st.session_state or st.session_state["phase_i_result"
 
 result = st.session_state["phase_i_result"]
 lim = result.final_limits
-values = result.final_values
-mr = result.final_mr
+
+# Restore original labels (dates, IDs) for chart display
+values = result.final_values.copy()
+values.index = result.original_labels[result.final_values.index]
+mr = result.final_mr.copy()
+mr.index = result.original_labels[result.final_mr.index]
 
 # Re-apply rules on the final clean set for annotation (should show no violations
 # if the study converged, but we display them anyway for transparency)
@@ -37,8 +41,8 @@ mr_violations = apply_mr_rule1(mr, lim["mr_ucl"])
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("N (final)", f"{result.n_final}")
 c2.metric("Mean (X̄)", f"{lim['i_cl']:.4f}")
-c3.metric("UCL", f"{lim['i_ucl']:.4f}")
-c4.metric("LCL", f"{lim['i_lcl']:.4f}")
+c3.metric("UAL", f"{lim['i_ucl']:.4f}")
+c4.metric("LAL", f"{lim['i_lcl']:.4f}")
 c5.metric("σ̂ (within)", f"{lim['sigma_within']:.4f}")
 
 st.divider()
@@ -65,8 +69,8 @@ st.subheader("Final Control Lines")
 lim_df = pd.DataFrame(
     {
         "Chart": ["I", "I", "I", "I", "I", "MR", "MR"],
-        "Line": ["UCL (Action)", "UWL (Warning)", "CL (Mean)", "LWL (Warning)", "LCL (Action)",
-                 "UCL", "CL (MR̄)"],
+        "Line": ["UAL (Action)", "UWL (Warning)", "CL (Mean)", "LWL (Warning)", "LAL (Action)",
+                 "UAL", "CL (MR̄)"],
         "Value": [
             lim["i_ucl"], lim["i_uwl"], lim["i_cl"],
             lim["i_lwl"], lim["i_lcl"],

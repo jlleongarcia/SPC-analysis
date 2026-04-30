@@ -7,6 +7,7 @@ to HTML / PNG for reports.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -64,7 +65,7 @@ def build_individuals_chart(
     x_range = [x[0], x[-1]] if x else [0, 1]
 
     # ── Shaded zones ────────────────────────────────────────────────────────
-    # Action zone (UCL / LCL fill)
+    # Action zone (UAL / LAL fill)
     fig.add_hrect(y0=limits["i_uwl"], y1=limits["i_ucl"],
                   fillcolor=COLORS["fill_action"], line_width=0, layer="below")
     fig.add_hrect(y0=limits["i_lcl"], y1=limits["i_lwl"],
@@ -77,11 +78,11 @@ def build_individuals_chart(
 
     # ── Control lines ────────────────────────────────────────────────────────
     for y, name, color, dash in [
-        (limits["i_ucl"], "UCL (Action)", COLORS["action"], "dash"),
+        (limits["i_ucl"], "UAL (Action)", COLORS["action"], "dash"),
         (limits["i_uwl"], "UWL (Warning)", COLORS["warning"], "dot"),
         (limits["i_cl"],  "CL (Mean)",    COLORS["cl"],      "solid"),
         (limits["i_lwl"], "LWL (Warning)", COLORS["warning"], "dot"),
-        (limits["i_lcl"], "LCL (Action)", COLORS["action"], "dash"),
+        (limits["i_lcl"], "LAL (Action)", COLORS["action"], "dash"),
     ]:
         fig.add_trace(_limit_trace(y, x_range, name, color, dash))
 
@@ -98,27 +99,32 @@ def build_individuals_chart(
 
     # ── Data points ──────────────────────────────────────────────────────────
     if violations is not None:
-        ok_mask = ~violations["any_violation"]
-        viol_mask = violations["any_violation"]
+        ok_mask = (~violations["any_violation"]).to_numpy(dtype=bool)
+        viol_mask = violations["any_violation"].to_numpy(dtype=bool)
 
         fig.add_trace(go.Scatter(
-            x=list(values.index[ok_mask]),
-            y=list(values.values[ok_mask]),
+            x=values[ok_mask].index.tolist(),
+            y=values[ok_mask].tolist(),
             mode="lines+markers",
             name="In control",
             line={"color": COLORS["data"], "width": 1.5},
             marker={"color": COLORS["data"], "size": 7},
         ))
         if viol_mask.any():
-            # Build hover text explaining which rules fired
+            # Build hover text using positional access to avoid
+            # truth-value errors with date-string or duplicate indices.
+            rule_cols = ["rule1", "rule2", "rule3", "rule4"]
+            viol_arr = violations[rule_cols].to_numpy()
+            vals_arr = values.to_numpy()
             hover = []
-            for idx in values.index[viol_mask]:
-                rules = [r for r in ["rule1","rule2","rule3","rule4"]
-                         if violations.loc[idx, r]]
-                hover.append(f"Value: {values.loc[idx]:.4g}<br>Rules: {', '.join(rules)}")
+            for pos, is_viol in enumerate(viol_mask):  # viol_mask is already numpy bool
+                if not is_viol:
+                    continue
+                rules = [rule_cols[j] for j in range(4) if bool(viol_arr[pos, j])]
+                hover.append(f"Value: {vals_arr[pos]:.4g}<br>Rules: {', '.join(rules)}")
             fig.add_trace(go.Scatter(
-                x=list(values.index[viol_mask]),
-                y=list(values.values[viol_mask]),
+                x=values[viol_mask].index.tolist(),
+                y=values[viol_mask].tolist(),
                 mode="markers",
                 name="Violation",
                 marker={"color": COLORS["violation"], "size": 10, "symbol": "circle-open",
@@ -137,7 +143,13 @@ def build_individuals_chart(
 
     fig.update_layout(
         title=title,
-        xaxis_title="Observation",
+        xaxis=dict(
+            title="Observation",
+            type="category",
+            tickangle=-45,
+            nticks=20,
+            automargin=True,
+        ),
         yaxis_title="Value",
         hovermode="x unified",
         template="plotly_white",
@@ -173,25 +185,34 @@ def build_mr_chart(
                   fillcolor=COLORS["fill_action"], line_width=0, layer="below")
 
     # Control lines
-    fig.add_trace(_limit_trace(limits["mr_ucl"], x_range, "UCL (Action)", COLORS["action"]))
+    fig.add_trace(_limit_trace(limits["mr_ucl"], x_range, "UAL (Action)", COLORS["action"]))
     fig.add_trace(_limit_trace(limits["mr_cl"],  x_range, "MR-bar (CL)", COLORS["cl"], "solid"))
 
     # Data
     if mr_violations is not None:
-        viol = mr_violations.reindex(mr_clean.index).fillna(False)
-        ok_mask = ~viol
+        # Positional alignment: mr_violations has the same length as mr_values (pre-dropna).
+        # mr_clean = mr_values.dropna() removes NaN positions (first point by construction).
+        # Using numpy positional ops avoids reindex failures with duplicate labels and
+        # avoids Arrow-backend Index[bool_mask] errors.
+        valid_pos = mr_values.notna().to_numpy()
+        viol_full = mr_violations.to_numpy(dtype=bool)
+        if len(viol_full) == len(valid_pos):
+            viol_np = viol_full[valid_pos]
+        else:
+            viol_np = np.zeros(len(mr_clean), dtype=bool)
+        ok_mask = ~viol_np
         fig.add_trace(go.Scatter(
-            x=list(mr_clean.index[ok_mask]),
-            y=list(mr_clean.values[ok_mask]),
+            x=mr_clean[ok_mask].index.tolist(),
+            y=mr_clean[ok_mask].tolist(),
             mode="lines+markers",
             name="Moving Range",
             line={"color": COLORS["data"], "width": 1.5},
             marker={"color": COLORS["data"], "size": 7},
         ))
-        if viol.any():
+        if viol_np.any():
             fig.add_trace(go.Scatter(
-                x=list(mr_clean.index[viol]),
-                y=list(mr_clean.values[viol]),
+                x=mr_clean[viol_np].index.tolist(),
+                y=mr_clean[viol_np].tolist(),
                 mode="markers",
                 name="MR Violation (Rule 1)",
                 marker={"color": COLORS["violation"], "size": 10, "symbol": "circle-open",
@@ -207,7 +228,13 @@ def build_mr_chart(
 
     fig.update_layout(
         title=title,
-        xaxis_title="Observation",
+        xaxis=dict(
+            title="Observation",
+            type="category",
+            tickangle=-45,
+            nticks=20,
+            automargin=True,
+        ),
         yaxis_title="Moving Range",
         hovermode="x unified",
         template="plotly_white",
@@ -265,5 +292,19 @@ def build_imr_panel(
     )
     combined.update_yaxes(title_text="Value", row=1, col=1)
     combined.update_yaxes(title_text="Moving Range", row=2, col=1)
-    combined.update_xaxes(title_text="Observation", row=2, col=1)
+    combined.update_xaxes(
+        title_text="Observation",
+        type="category",
+        tickangle=-45,
+        nticks=20,
+        automargin=True,
+        row=2, col=1,
+    )
+    combined.update_xaxes(
+        type="category",
+        tickangle=-45,
+        nticks=20,
+        automargin=True,
+        row=1, col=1,
+    )
     return combined

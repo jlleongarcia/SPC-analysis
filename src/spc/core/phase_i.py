@@ -39,11 +39,12 @@ class IterationSnapshot:
     """Stores the state of one Phase I iteration."""
 
     iteration: int
-    retained_indices: list
+    retained_indices: list                # integer positions in the reset index
+    retained_values: pd.Series           # actual values used (integer-indexed)
     limits: dict[str, float]
-    individual_violations: pd.DataFrame   # rule1…rule4 + any_violation
+    individual_violations: pd.DataFrame  # rule1…rule4 + any_violation
     mr_violations: pd.Series
-    removed_indices: list                 # removed *after* this iteration
+    removed_indices: list                # integer positions removed after this iteration
     n_retained: int
     n_removed_this_iter: int
 
@@ -55,13 +56,14 @@ class PhaseIResult:
     converged: bool                        # True if no violations at end
     iterations: list[IterationSnapshot]
     final_limits: dict[str, float]
-    final_values: pd.Series               # clean retained measurements
+    final_values: pd.Series               # clean retained measurements (integer-indexed)
     final_mr: pd.Series
     removal_log: pd.DataFrame             # full audit trail
     n_original: int
     n_final: int
     n_total_removed: int
     rule_config: dict[str, int]
+    original_labels: pd.Index             # original index labels (dates, IDs, etc.)
 
 
 def run_phase_i(
@@ -96,6 +98,14 @@ def run_phase_i(
         "rule4_k": rule4_k,
     }
 
+    # Save original labels (dates, IDs, etc.) for display, then reset to a
+    # RangeIndex so all .loc lookups are unambiguous integer-based.
+    # This prevents "truth value of a Series is ambiguous" errors that occur
+    # when date-like string indices cause .loc to return a DataFrame instead
+    # of a scalar (e.g. duplicate dates, partial date matches).
+    original_labels: pd.Index = values.index.copy()
+    values = values.reset_index(drop=True)
+
     original_values = values.copy()
     n_original = int(original_values.notna().sum())
 
@@ -117,14 +127,16 @@ def run_phase_i(
         )
         mr_violations = apply_mr_rule1(mr, limits["mr_ucl"])
 
-        # Union of all flagged indices (individual OR MR rule 1)
-        flagged_individual = ind_violations.index[ind_violations["any_violation"]]
-        flagged_mr = mr_violations.index[mr_violations.fillna(False)]
+        # Union of all flagged indices (individual OR MR rule 1).
+        # Use .to_numpy() for boolean index operations to avoid ambiguity.
+        flagged_individual = ind_violations.index[ind_violations["any_violation"].to_numpy()]
+        flagged_mr = mr_violations.index[mr_violations.fillna(False).to_numpy()]
         flagged_all = flagged_individual.union(flagged_mr)
 
         snap = IterationSnapshot(
             iteration=iteration,
             retained_indices=list(retained.index),
+            retained_values=retained.copy(),
             limits=limits,
             individual_violations=ind_violations,
             mr_violations=mr_violations.fillna(False),
@@ -150,23 +162,31 @@ def run_phase_i(
                 n_final=len(final_values),
                 n_total_removed=n_original - len(final_values),
                 rule_config=rule_config,
+                original_labels=original_labels,
             )
 
-        # Build audit-trail rows before removing
-        for idx in flagged_all:
+        # Build audit-trail rows before removing.
+        # Use integer positional access (.iloc) — safe regardless of index type.
+        flagged_set = set(flagged_all)
+        flagged_ind_set = set(flagged_individual)
+        flagged_mr_set = set(flagged_mr)
+        for pos, idx in enumerate(retained.index):
+            if idx not in flagged_set:
+                continue
             rules_fired = []
-            if idx in flagged_individual:
-                row = ind_violations.loc[idx]
-                for r in ["rule1", "rule2", "rule3", "rule4"]:
-                    if row[r]:
+            if idx in flagged_ind_set:
+                # Use positional access to guarantee a scalar, never a Series
+                for j, r in enumerate(["rule1", "rule2", "rule3", "rule4"]):
+                    if bool(ind_violations.iloc[pos, j]):
                         rules_fired.append(r)
-            if idx in flagged_mr:
+            if idx in flagged_mr_set:
                 rules_fired.append("mr_rule1")
             removal_rows.append(
                 {
                     "iteration": iteration,
                     "index": idx,
-                    "value": float(retained.loc[idx]),
+                    "original_label": original_labels[idx] if idx < len(original_labels) else idx,
+                    "value": float(retained.iloc[pos]),
                     "rules_violated": ", ".join(rules_fired),
                     "x_bar_at_removal": limits["i_cl"],
                     "ucl_at_removal": limits["i_ucl"],
@@ -192,13 +212,14 @@ def run_phase_i(
         n_final=len(final_values),
         n_total_removed=n_original - len(final_values),
         rule_config=rule_config,
+        original_labels=original_labels,
     )
 
 
 def _build_removal_log(rows: list[dict]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(
-            columns=["iteration", "index", "value", "rules_violated",
+            columns=["iteration", "original_label", "value", "rules_violated",
                      "x_bar_at_removal", "ucl_at_removal", "lcl_at_removal"]
         )
-    return pd.DataFrame(rows).set_index("index")
+    return pd.DataFrame(rows).set_index("original_label")

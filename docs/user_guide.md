@@ -80,8 +80,8 @@ with its limits table and an interactive I-MR chart.
 Displays the definitive **Individuals (I)** and **Moving Range (MR)** charts
 using only the clean retained data and the final verified control limits.
 
-A summary table lists all six control lines (UCL, UWL, CL, LWL, LCL for the I
-chart; UCL and CL for the MR chart) at full precision.
+A summary table lists all six control lines (UAL, UWL, CL, LWL, LAL for the I
+chart; UAL and CL for the MR chart) at full precision.
 
 If the study did not converge (hit the iteration cap), a warning is shown and
 remaining violations are highlighted in red.
@@ -121,7 +121,7 @@ Displays the full **removal log** — every observation removed during Phase I, 
 - Which iteration it was removed in
 - Its measured value
 - Which SPC rule(s) it violated
-- The X̄, UCL, and LCL in force at the time of removal
+- The X̄, UAL, and LAL in force at the time of removal
 
 Use the **Export audit trail as CSV** button to download this log for attachment
 to your QMS documentation (PPAP, control plan, GMP batch record, etc.).

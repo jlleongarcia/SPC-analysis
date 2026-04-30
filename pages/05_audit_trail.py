@@ -57,18 +57,18 @@ log = result.removal_log
 if log.empty:
     st.info("No observations were removed.")
 else:
-    # Friendly column labels
+    # Friendly column labels (index name is now "original_label")
     display_log = log.reset_index().rename(
         columns={
-            "index": "Observation",
+            "original_label": "Observation",
             "iteration": "Iteration",
             "value": "Value",
             "rules_violated": "Rules Violated",
             "x_bar_at_removal": "X̄ (at removal)",
-            "ucl_at_removal": "UCL (at removal)",
-            "lcl_at_removal": "LCL (at removal)",
+            "ucl_at_removal": "UAL (at removal)",
+            "lcl_at_removal": "LAL (at removal)",
         }
-    )
+    ).drop(columns=["index"], errors="ignore")
     st.dataframe(
         display_log.style.format(
             {
