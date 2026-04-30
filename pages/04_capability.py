@@ -12,11 +12,24 @@ from spc.core.capability import compute_capability
 
 st.header("⚙️ Process Capability")
 
-if "phase_i_result" not in st.session_state or st.session_state["phase_i_result"] is None:
-    st.warning("No Phase I result found. Please run the **Phase I Study** first.")
+results: dict = st.session_state.get("phase_i_results", {})
+value_cols: list = st.session_state.get("value_cols", [])
+completed = [c for c in value_cols if c in results and results[c] is not None]
+
+if not completed:
+    st.warning("No Phase I results found. Please run the **Phase I Study** first.")
     st.stop()
 
-result = st.session_state["phase_i_result"]
+if len(completed) > 1:
+    selected_col = st.selectbox(
+        "Variable to analyse",
+        options=completed,
+        help="Select which measurement variable to compute capability indices for.",
+    )
+else:
+    selected_col = completed[0]
+
+result = results[selected_col]
 values = result.final_values
 lim = result.final_limits
 

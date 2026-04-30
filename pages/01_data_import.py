@@ -1,6 +1,6 @@
 """Page 1 — Data Import.
 
-Accepts CSV or Excel files.  The user selects which column contains the
+Accepts CSV or Excel files.  The user selects one or more columns containing
 measurements and optionally which column to use as the observation label/date.
 The parsed data is stored in st.session_state for downstream pages.
 """
@@ -17,7 +17,7 @@ st.markdown(
     Upload a **CSV** or **Excel** file containing your process measurements.
 
     - Each row should represent **one observation** (one day, one batch, one sample…).
-    - One column must contain the **individual measurement value**.
+    - Select **one or more** numeric columns as measurement variables.
     - An optional column can serve as the **observation label** (date, batch ID, etc.).
     """
 )
@@ -48,10 +48,11 @@ if uploaded is not None:
 
     col1, col2 = st.columns(2)
     with col1:
-        value_col = st.selectbox(
-            "Measurement column",
+        value_cols = st.multiselect(
+            "Measurement column(s)",
             options=numeric_cols,
-            help="The column containing individual process measurements.",
+            default=[numeric_cols[0]],
+            help="Select one or more columns containing individual process measurements.",
         )
     with col2:
         label_col = st.selectbox(
@@ -60,36 +61,44 @@ if uploaded is not None:
             help="Date, batch ID, or sequence number. Used as the chart x-axis.",
         )
 
-    # ── Preview selected series ───────────────────────────────────────────────
-    values: pd.Series = df_raw[value_col].copy()
+    if not value_cols:
+        st.warning("Select at least one measurement column.")
+        st.stop()
 
+    # ── Build labeled DataFrame ───────────────────────────────────────────────
+    df_labeled = df_raw[value_cols].copy()
     if label_col != "— none —":
-        values.index = df_raw[label_col].astype(str)
-        values.index.name = label_col
+        df_labeled.index = df_raw[label_col].astype(str)
+        df_labeled.index.name = label_col
     else:
-        values.index = range(1, len(values) + 1)
-        values.index.name = "Observation"
+        df_labeled.index = range(1, len(df_labeled) + 1)
+        df_labeled.index.name = "Observation"
 
-    n_missing = values.isna().sum()
-    st.markdown(
-        f"**{values.notna().sum():,}** valid observations  |  "
-        f"**{n_missing}** missing (will be excluded from computations)"
-    )
+    # ── Preview selected columns ──────────────────────────────────────────────
+    preview_cols = st.columns(len(value_cols))
+    for i, col in enumerate(value_cols):
+        n_valid   = df_labeled[col].notna().sum()
+        n_missing = df_labeled[col].isna().sum()
+        preview_cols[i].metric(col, f"{n_valid:,} valid", delta=f"{n_missing} missing" if n_missing else None)
 
     # ── Confirm and store ─────────────────────────────────────────────────────
     if st.button("✅ Confirm and proceed →", type="primary"):
-        st.session_state["raw_values"] = values
-        st.session_state["value_col"] = value_col
+        st.session_state["raw_df"]    = df_labeled
+        st.session_state["value_cols"] = value_cols
         # Clear any previous Phase I state so downstream pages start fresh
         for _k in list(st.session_state.keys()):
             if _k.startswith(("phase_i_", "chk_", "cause_")):
                 del st.session_state[_k]
-        st.success("Data stored. Navigate to **Phase I Study** in the sidebar.")
+        vcols_str = ", ".join(f"**{c}**" for c in value_cols)
+        st.success(f"Data stored ({vcols_str}). Navigate to **Phase I Study** in the sidebar.")
 
-elif "raw_values" in st.session_state:
+elif "raw_df" in st.session_state:
+    raw_df  = st.session_state["raw_df"]
+    vc      = st.session_state.get("value_cols", [])
+    vcols_str = ", ".join(f"*{c}*" for c in vc)
     st.info(
-        f"Currently loaded: **{len(st.session_state['raw_values']):,}** observations "
-        f"(column: *{st.session_state.get('value_col', '?')}*).  "
+        f"Currently loaded: **{len(raw_df):,}** observations  |  "
+        f"**{len(vc)}** variable(s): {vcols_str}.  "
         "Upload a new file to replace."
     )
 
@@ -98,26 +107,36 @@ with st.expander("📎 No file yet? Generate sample data"):
     import numpy as np
 
     st.markdown(
-        "Generate a synthetic dataset to explore the tool.  "
-        "A small number of out-of-control points are injected automatically."
+        "Generate a synthetic dataset with **two correlated measurement variables** "
+        "on the same machine.  A small number of out-of-control points are injected "
+        "at the same observations for both variables — demonstrating cross-variable flagging."
     )
     n_obs = st.slider("Number of observations", 30, 300, 80)
-    mean_val = st.number_input("Process mean", value=100.0)
-    std_val = st.number_input("Process std dev", value=2.5, min_value=0.01)
+    mean_val = st.number_input("Process mean (variable A)", value=100.0)
+    std_val  = st.number_input("Process std dev",            value=2.5,  min_value=0.01)
 
     if st.button("Generate sample dataset"):
-        rng = np.random.default_rng(42)
-        data = rng.normal(mean_val, std_val, n_obs)
-        # Inject a few obvious out-of-control points
+        rng     = np.random.default_rng(42)
+        data_a  = rng.normal(mean_val, std_val, n_obs)
+        # Variable B is correlated with A (same machine, different characteristic)
+        data_b  = data_a * 0.6 + rng.normal(mean_val * 0.4, std_val * 0.8, n_obs)
+        # Inject the same out-of-control events in both
         ooc_idx = rng.choice(n_obs, size=max(2, n_obs // 20), replace=False)
-        data[ooc_idx] += rng.choice([-1, 1], size=len(ooc_idx)) * std_val * 4
+        signs   = rng.choice([-1, 1], size=len(ooc_idx))
+        data_a[ooc_idx] += signs * std_val * 4
+        data_b[ooc_idx] += signs * std_val * 3
 
-        sample_df = pd.DataFrame({"observation": range(1, n_obs + 1), "value": data})
+        sample_df = pd.DataFrame({
+            "observation":   range(1, n_obs + 1),
+            "measurement_A": data_a,
+            "measurement_B": data_b,
+        })
         csv_bytes = sample_df.to_csv(index=False).encode()
         st.download_button(
             "⬇️ Download sample CSV",
             data=csv_bytes,
             file_name="spc_sample_data.csv",
+
             mime="text/csv",
         )
         st.dataframe(sample_df.head(10))
