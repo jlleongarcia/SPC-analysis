@@ -20,11 +20,12 @@ if "phase_i_result" not in st.session_state or st.session_state["phase_i_result"
 result = st.session_state["phase_i_result"]
 lim = result.final_limits
 
-# Restore original labels (dates, IDs) for chart display
+# Restore original labels (dates, IDs) for chart display.
+# original_labels is aligned 1-to-1 with final_values (same length).
 values = result.final_values.copy()
-values.index = result.original_labels[result.final_values.index]
+values.index = result.original_labels
 mr = result.final_mr.copy()
-mr.index = result.original_labels[result.final_mr.index]
+mr.index = result.original_labels
 
 # Re-apply rules on the final clean set for annotation (should show no violations
 # if the study converged, but we display them anyway for transparency)

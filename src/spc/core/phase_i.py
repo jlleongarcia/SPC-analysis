@@ -1,31 +1,27 @@
-"""Phase I iterative SPC engine.
+"""Phase I SPC engine — analyst-driven two-pass evaluation.
 
-Algorithm
-─────────
-    1. Start with the full dataset (all non-NaN values).
-    2. Compute I-MR control limits from the current retained set.
-    3. Apply all four SPC rules to the Individual chart.
-    4. Apply Rule 1 to the Moving Range chart.
-    5. Identify all flagged indices.
-    6. If any violations exist AND max_iterations not reached:
-           • Record the iteration snapshot (limits, violations, removed points).
-           • Remove flagged points from the retained set.
-           • Go to step 2.
-    7. If no violations, the process is in statistical control.
-       Compute final capability indices and return the full audit trail.
+Oakland's principle (J.S. Oakland, *Statistical Process Control*, Ch. 4–5;
+Wheeler, *Understanding SPC*):
 
-Design decisions for enterprise use
-────────────────────────────────────
-    • Every removed point is logged with the specific rule(s) it violated.
-    • Iterations are capped at ``max_iterations`` to prevent over-pruning.
-    • A ``removal_log`` DataFrame provides the audit trail required by
-      quality management systems (ISO 9001, IATF 16949, GMP, etc.).
-    • The engine never mutates the original data — it returns new objects.
+    * Only common-cause variation should remain in the Phase I baseline.
+    * A point should be removed ONLY when an assignable cause is identified.
+    * The analyst — not the algorithm — decides whether a flagged point is a
+      genuine special cause or natural common-cause variation.
+
+This module exposes a single pure function :func:`run_phase_i_pass` that
+evaluates one pass of an I-MR SPC study and returns all violations for
+analyst review.  The two-pass human-in-the-loop workflow lives in the UI
+layer (pages/02_Phase_I.py):
+
+    Pass 1  →  analyst reviews flags, documents assignable causes, selects
+               which points (if any) to remove.
+    Pass 2  →  (only if removals were made) re-evaluates the cleaned data.
+               The result of Pass 2 is the certified baseline.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -35,61 +31,91 @@ from spc.core.rules import apply_all_rules, apply_mr_rule1
 
 
 @dataclass
-class IterationSnapshot:
-    """Stores the state of one Phase I iteration."""
+class PassResult:
+    """Result of one Phase I evaluation pass.
 
-    iteration: int
-    retained_indices: list                # integer positions in the reset index
-    retained_values: pd.Series           # actual values used (integer-indexed)
+    All row references use a clean integer RangeIndex (0 … n-1).
+    The mapping back to original labels (dates, batch IDs, …) is stored in
+    ``original_labels``: ``original_labels[i]`` is the label for
+    ``values.iloc[i]``.  ``original_ilocs[i]`` is the corresponding
+    positional index in the *input* Series (used for duplicate-safe removal).
+    """
+
+    values: pd.Series               # retained measurements, integer-indexed
+    mr: pd.Series                   # moving range (first entry is NaN)
     limits: dict[str, float]
-    individual_violations: pd.DataFrame  # rule1…rule4 + any_violation
-    mr_violations: pd.Series
-    removed_indices: list                # integer positions removed after this iteration
-    n_retained: int
-    n_removed_this_iter: int
+    individual_violations: pd.DataFrame  # rule1..rule4 + any_violation, integer-indexed
+    mr_violations: pd.Series        # bool, integer-indexed (NaN → False)
+    original_labels: pd.Index       # one label per row in values
+    original_ilocs: np.ndarray      # iloc positions of each row in the input Series
+    n_original: int                 # non-NaN count fed into this pass
+    rule_config: dict[str, int]
+
+    @property
+    def any_violations(self) -> bool:
+        """True if at least one flagged point exists (I or MR chart)."""
+        return (
+            bool(self.individual_violations["any_violation"].any())
+            or bool(self.mr_violations.any())
+        )
+
+    @property
+    def flagged_integer_indices(self) -> list[int]:
+        """Sorted integer positions (into self.values) of all flagged points."""
+        ind_np = self.individual_violations["any_violation"].to_numpy(dtype=bool)
+        mr_np  = self.mr_violations.to_numpy(dtype=bool)
+        combined = ind_np | mr_np
+        return [int(i) for i, flag in zip(self.values.index, combined) if flag]
 
 
 @dataclass
 class PhaseIResult:
-    """Full result of the Phase I iterative study."""
+    """Final Phase I result stored for downstream pages.
 
-    converged: bool                        # True if no violations at end
-    iterations: list[IterationSnapshot]
-    final_limits: dict[str, float]
-    final_values: pd.Series               # clean retained measurements (integer-indexed)
+    Built by the UI layer after the analyst has confirmed all decisions.
+    """
+
+    final_values: pd.Series         # integer-indexed clean retained values
     final_mr: pd.Series
-    removal_log: pd.DataFrame             # full audit trail
+    final_limits: dict[str, float]
+    original_labels: pd.Index       # one label per row in final_values
     n_original: int
     n_final: int
     n_total_removed: int
     rule_config: dict[str, int]
-    original_labels: pd.Index             # original index labels (dates, IDs, etc.)
+    audit_log: pd.DataFrame         # all flagged points with analyst decisions
+    n_passes: int                   # 1 or 2
+    final_pass_has_violations: bool  # True if final pass still shows violations
 
 
-def run_phase_i(
+
+def run_phase_i_pass(
     values: pd.Series,
     *,
-    max_iterations: int = 10,
     rule2_k: int = 2,
     rule2_window: int = 3,
     rule3_k: int = 8,
     rule4_k: int = 6,
-) -> PhaseIResult:
-    """Execute the Phase I iterative SPC study on individual measurements.
+) -> PassResult:
+    """Evaluate one Phase I pass on the supplied measurements.
+
+    This function is **pure**: it does not modify ``values`` and never
+    decides which points to remove.  Removal decisions belong to the
+    analyst, who must document an assignable cause for each removal before
+    the baseline is finalised (Oakland, Ch. 4–5).
 
     Parameters
     ----------
     values:
-        Full time-ordered series of individual measurements (NaN allowed;
-        they are excluded from computation but their index positions are kept).
-    max_iterations:
-        Safety cap on the number of removal iterations (default 10).
-    rule2_k, rule2_window, rule3_k, rule4_k:
-        Rule threshold overrides — see :mod:`spc.core.rules` for details.
+        Time-ordered individual measurements.  NaN values are excluded.
+        The original index (dates, IDs, …) is captured in the returned
+        :class:`PassResult` for display purposes.
 
     Returns
     -------
-    :class:`PhaseIResult`
+    :class:`PassResult`
+        Contains limits, violation flags, and the integer → original-label
+        mapping.  Feed the result to the UI layer for analyst review.
     """
     rule_config = {
         "rule2_k": rule2_k,
@@ -98,128 +124,36 @@ def run_phase_i(
         "rule4_k": rule4_k,
     }
 
-    # Save original labels (dates, IDs, etc.) for display, then reset to a
-    # RangeIndex so all .loc lookups are unambiguous integer-based.
-    # This prevents "truth value of a Series is ambiguous" errors that occur
-    # when date-like string indices cause .loc to return a DataFrame instead
-    # of a scalar (e.g. duplicate dates, partial date matches).
-    original_labels: pd.Index = values.index.copy()
-    values = values.reset_index(drop=True)
+    # Extract non-NaN values; record original labels and iloc positions for
+    # each retained point; then reset to a plain RangeIndex so all downstream
+    # operations (rules, limits) are unambiguous and index-type-agnostic.
+    clean_mask_np = values.notna().to_numpy()
+    original_labels: pd.Index = values.index[clean_mask_np]
+    original_ilocs: np.ndarray = np.where(clean_mask_np)[0]
+    clean = values.iloc[original_ilocs].reset_index(drop=True)
+    n_original = len(clean)
 
-    original_values = values.copy()
-    n_original = int(original_values.notna().sum())
+    if n_original < 2:
+        raise ValueError("At least 2 non-NaN observations are required.")
 
-    retained = original_values.dropna().copy()
-    iterations: list[IterationSnapshot] = []
-    removal_rows: list[dict] = []
+    limits = compute_limits(clean)
+    mr = compute_moving_range(clean)
 
-    for iteration in range(1, max_iterations + 1):
-        if len(retained) < 2:
-            break
-
-        limits = compute_limits(retained)
-        mr = compute_moving_range(retained)
-
-        ind_violations = apply_all_rules(
-            retained, limits,
-            rule2_k=rule2_k, rule2_window=rule2_window,
-            rule3_k=rule3_k, rule4_k=rule4_k,
-        )
-        mr_violations = apply_mr_rule1(mr, limits["mr_ucl"])
-
-        # Union of all flagged indices (individual OR MR rule 1).
-        # Use .to_numpy() for boolean index operations to avoid ambiguity.
-        flagged_individual = ind_violations.index[ind_violations["any_violation"].to_numpy()]
-        flagged_mr = mr_violations.index[mr_violations.fillna(False).to_numpy()]
-        flagged_all = flagged_individual.union(flagged_mr)
-
-        snap = IterationSnapshot(
-            iteration=iteration,
-            retained_indices=list(retained.index),
-            retained_values=retained.copy(),
-            limits=limits,
-            individual_violations=ind_violations,
-            mr_violations=mr_violations.fillna(False),
-            removed_indices=list(flagged_all),
-            n_retained=len(retained),
-            n_removed_this_iter=len(flagged_all),
-        )
-        iterations.append(snap)
-
-        if len(flagged_all) == 0:
-            # No violations — process is in control
-            final_limits = limits
-            final_values = retained.copy()
-            final_mr = compute_moving_range(final_values)
-            return PhaseIResult(
-                converged=True,
-                iterations=iterations,
-                final_limits=final_limits,
-                final_values=final_values,
-                final_mr=final_mr,
-                removal_log=_build_removal_log(removal_rows),
-                n_original=n_original,
-                n_final=len(final_values),
-                n_total_removed=n_original - len(final_values),
-                rule_config=rule_config,
-                original_labels=original_labels,
-            )
-
-        # Build audit-trail rows before removing.
-        # Use integer positional access (.iloc) — safe regardless of index type.
-        flagged_set = set(flagged_all)
-        flagged_ind_set = set(flagged_individual)
-        flagged_mr_set = set(flagged_mr)
-        for pos, idx in enumerate(retained.index):
-            if idx not in flagged_set:
-                continue
-            rules_fired = []
-            if idx in flagged_ind_set:
-                # Use positional access to guarantee a scalar, never a Series
-                for j, r in enumerate(["rule1", "rule2", "rule3", "rule4"]):
-                    if bool(ind_violations.iloc[pos, j]):
-                        rules_fired.append(r)
-            if idx in flagged_mr_set:
-                rules_fired.append("mr_rule1")
-            removal_rows.append(
-                {
-                    "iteration": iteration,
-                    "index": idx,
-                    "original_label": original_labels[idx] if idx < len(original_labels) else idx,
-                    "value": float(retained.iloc[pos]),
-                    "rules_violated": ", ".join(rules_fired),
-                    "x_bar_at_removal": limits["i_cl"],
-                    "ucl_at_removal": limits["i_ucl"],
-                    "lcl_at_removal": limits["i_lcl"],
-                }
-            )
-
-        retained = retained.drop(index=flagged_all)
-
-    # Loop ended without convergence (hit max_iterations or insufficient data)
-    limits = compute_limits(retained) if len(retained) >= 2 else {}
-    final_values = retained.copy()
-    final_mr = compute_moving_range(final_values) if len(final_values) >= 2 else pd.Series(dtype=float)
-
-    return PhaseIResult(
-        converged=False,
-        iterations=iterations,
-        final_limits=limits,
-        final_values=final_values,
-        final_mr=final_mr,
-        removal_log=_build_removal_log(removal_rows),
-        n_original=n_original,
-        n_final=len(final_values),
-        n_total_removed=n_original - len(final_values),
-        rule_config=rule_config,
-        original_labels=original_labels,
+    ind_violations = apply_all_rules(
+        clean, limits,
+        rule2_k=rule2_k, rule2_window=rule2_window,
+        rule3_k=rule3_k, rule4_k=rule4_k,
     )
+    mr_violations = apply_mr_rule1(mr, limits["mr_ucl"]).fillna(False)
 
-
-def _build_removal_log(rows: list[dict]) -> pd.DataFrame:
-    if not rows:
-        return pd.DataFrame(
-            columns=["iteration", "original_label", "value", "rules_violated",
-                     "x_bar_at_removal", "ucl_at_removal", "lcl_at_removal"]
-        )
-    return pd.DataFrame(rows).set_index("original_label")
+    return PassResult(
+        values=clean,
+        mr=mr,
+        limits=limits,
+        individual_violations=ind_violations,
+        mr_violations=mr_violations,
+        original_labels=original_labels,
+        original_ilocs=original_ilocs,
+        n_original=n_original,
+        rule_config=rule_config,
+    )

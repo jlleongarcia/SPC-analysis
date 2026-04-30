@@ -80,7 +80,10 @@ if uploaded is not None:
     if st.button("✅ Confirm and proceed →", type="primary"):
         st.session_state["raw_values"] = values
         st.session_state["value_col"] = value_col
-        st.session_state["phase_i_result"] = None  # clear any previous run
+        # Clear any previous Phase I state so downstream pages start fresh
+        for _k in list(st.session_state.keys()):
+            if _k.startswith(("phase_i_", "chk_", "cause_")):
+                del st.session_state[_k]
         st.success("Data stored. Navigate to **Phase I Study** in the sidebar.")
 
 elif "raw_values" in st.session_state:

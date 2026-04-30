@@ -41,15 +41,8 @@ Upload the file, select your measurement column, and click **Confirm and proceed
 
 ### Step 2 — Phase I Study
 
-This is the core of the tool. It runs an **iterative loop**:
-
-```
-1. Compute X̄, MR̄, and all control lines from the current retained data
-2. Apply the four SPC rules to the Individuals chart
-3. Apply Rule 1 to the Moving Range chart
-4. If any violations are found → remove those points, log them, repeat
-5. If no violations → the process is in statistical control → stop
-```
+This is the core of the tool. It follows the **Oakland two-pass analyst-driven
+workflow** (J.S. Oakland, *Statistical Process Control*, Ch. 4–5).
 
 **Before running**, a **normality pre-check** (Shapiro-Wilk test) is performed.
 Shewhart charts assume near-normality; a warning is shown if the data deviates
@@ -58,20 +51,41 @@ significantly.
 **Configuration options** (expandable panel):
 
 | Setting | Default | What it controls |
-|---------|---------|-----------------|
+|---------|---------|------------------|
 | Rule 2 — k points | 2 | Number of points required in the warning zone within the window |
 | Rule 2 — window | 3 | Rolling window size for Rule 2 |
 | Rule 3 — run length | 8 | Consecutive points same side of centre line |
 | Rule 4 — trend length | 6 | Consecutive rising or falling points |
-| Max iterations | 10 | Safety cap to prevent over-pruning |
 
-Click **Run Phase I Analysis**. Each iteration is shown as an expandable section
-with its limits table and an interactive I-MR chart.
+Click **▶ Run Pass 1**. The tool:
 
-> **Enterprise note:** Statistical flagging alone is not sufficient justification
-> for removing a data point in regulated environments. Each removed point should
-> have a documented **process-level assignable cause** (equipment failure, operator
-> error, raw material issue, etc.) before the baseline is finalised.
+1. Computes X̄, MR̄, and all control lines from the full dataset
+2. Applies the four SPC rules to the Individuals chart and Rule 1 to the MR chart
+3. Presents every flagged point in a **decision table**
+
+**Decision table (Pass 1 results):**
+
+For each flagged observation you must decide:
+- **Remove?** — tick the checkbox to exclude the point from the baseline
+- **Assignable cause** — if removing, you *must* document the known process-level
+  reason (equipment failure, operator error, raw material lot, etc.)
+
+If no assignable cause is known, leave the checkbox unticked — Oakland's principle
+is that a statistically flagged point with no confirmed cause should remain.
+
+Click **Confirm decisions**. The tool then:
+
+- If **no points removed**: finalises the baseline immediately (single pass).
+- If **points removed**: runs **Pass 2** on the reduced dataset to re-evaluate the
+  revised limits. Pass 2 results are shown with the updated I-MR chart.
+
+The study stops after at most **two passes**, preventing the "utopia limits" problem
+caused by iteratively trimming until no violations remain.
+
+> **Oakland's principle (§5.4):** Removing observations without a confirmed
+> assignable cause is *tampering* — it artificially tightens limits and increases
+> real-world false-alarm rates. Statistical flagging identifies *candidates*;
+> the analyst decides.
 
 ---
 
@@ -116,12 +130,17 @@ how much margin exists between the process spread and the specification limits.
 
 ### Step 5 — Audit Trail
 
-Displays the full **removal log** — every observation removed during Phase I, with:
+Displays the full **analyst decision log** — every point flagged during Phase I, with:
 
-- Which iteration it was removed in
-- Its measured value
-- Which SPC rule(s) it violated
-- The X̄, UAL, and LAL in force at the time of removal
+| Column | Description |
+|--------|-------------|
+| Pass | 1 or 2 — which pass detected the violation |
+| Observation | Label (date, batch ID, etc.) |
+| Value | Measured value |
+| Rules violated | Which of the four SPC rules fired |
+| Decision | "Removed" or "Retained (analyst decision)" |
+| Assignable cause | The documented process-level cause (required for removals) |
+| X̄ / UAL / LAL | Control lines in force during that pass |
 
 Use the **Export audit trail as CSV** button to download this log for attachment
 to your QMS documentation (PPAP, control plan, GMP batch record, etc.).

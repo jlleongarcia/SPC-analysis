@@ -107,50 +107,77 @@ chance (only the direction of each successive step matters, not the magnitude).
 
 ---
 
-## 5. Phase I iterative algorithm
+## 5. Phase I algorithm — Oakland two-pass workflow
+
+The tool implements the analyst-driven two-pass method recommended by J.S. Oakland
+(*Statistical Process Control*, Ch. 4–5) rather than an automated iterative loop.
+The key distinction is that **the algorithm never removes data automatically** —
+every exclusion requires a human decision backed by a documented assignable cause.
 
 ```
-INPUT: full historical dataset D, max_iterations M
-OUTPUT: stable limits, clean dataset, removal audit trail
+INPUT:  full historical dataset D
+OUTPUT: stable limits, final dataset, analyst decision log
 
-retained ← D (all non-NaN values)
+─── PASS 1 ────────────────────────────────────────────────────────────────
+1. Compute X̄, MR̄, σ̂, and all control lines from D (NaN values excluded)
+2. Apply Rules 1–4 to Individual chart; apply Rule 1 to MR chart
+3. flagged ← union of all violation positions
 
-FOR iteration = 1 TO M:
-    1. Compute X̄, MR̄, σ̂, and all control lines from retained
-    2. Apply Rules 1–4 to Individual chart
-    3. Apply Rule 1 to MR chart
-    4. flagged ← union of all violation indices
-    5. IF flagged is empty:
-           RETURN (converged, current limits, retained, audit trail)
-    6. Log each flagged point with: iteration, value, rules violated,
-       X̄, UAL, LAL at time of removal
-    7. retained ← retained \ flagged
+4. Present flagged points to analyst:
+   FOR each point p in flagged:
+       analyst specifies: remove=True/False, assignable_cause (required if True)
 
-RETURN (not converged, current limits, retained, audit trail)
+5. to_remove ← {p ∈ flagged : analyst chose remove=True}
+
+IF to_remove is empty:
+    RETURN (1 pass, D, limits from Pass 1, audit log)
+
+─── PASS 2 ────────────────────────────────────────────────────────────────
+6. D2 ← D \ to_remove   (iloc-safe removal, duplicate labels handled)
+7. Compute new X̄, MR̄, σ̂, and all control lines from D2
+8. Apply all rules to D2 → record any remaining violations (informational)
+
+RETURN (2 passes, D2, limits from Pass 2, audit log)
 ```
 
-### Why iterative?
+### Why two passes, not iterative?
 
-Removing a point changes the mean and standard deviation, which changes the
-limits, which may expose (or eliminate) violations in other points. A single pass
-is insufficient for retrospective data with multiple disturbances.
+Oakland (§5.4) warns that iterating until zero violations are found produces
+**"utopia limits"** — artificially tight control lines computed from a dataset
+that no longer represents the real process. Each removed point shifts the mean and
+standard deviation, which can expose new violations and trigger cascading removals.
+
+The two-pass cap prevents this: Pass 1 uses the full data to identify the most
+egregious special-cause signals; Pass 2 re-evaluates whether any new signals emerge
+after the confirmed outliers are removed. If Pass 2 still has violations, they are
+flagged informational — the analyst can note them in the audit trail without
+triggering further automatic passes.
+
+### Assignable cause requirement
+
+A point may only be removed when the analyst can document a **specific, verifiable
+process-level cause** (e.g., "Chiller unit tripped at 02:30 — maintenance log ref.
+WO-2024-1142"). Statistical rule violations alone are *necessary but not
+sufficient* justification for removal. This aligns with:
+
+- Oakland (§5.1, §5.4) on the purpose of Phase I
+- AIAG *PPAP* 4th ed. — baseline studies must document sources of variation
+- FDA 21 CFR Part 211 — data integrity requirements
 
 ### Stopping criteria
 
-1. **Convergence** — no violations detected (primary criterion)
-2. **Iteration cap** — safety limit to prevent over-pruning (default: 10)
+| Condition | Result |
+|-----------|--------|
+| Pass 1 — no violations | 1-pass baseline accepted |
+| Pass 1 — violations, analyst removes none | 1-pass baseline accepted (violations retained) |
+| Pass 1 — analyst removes ≥1 point | Pass 2 runs automatically |
+| Pass 2 complete | Final baseline accepted regardless of remaining violations |
 
 ### Over-pruning risk
 
-If too many points are removed (>20% is a warning threshold in this tool), the
-resulting limits may be unrealistically tight. This can happen when:
-- The baseline period itself was unstable
-- The tolerance for what counts as "in control" is too strict
-- The dataset is too small (n < 30 is borderline for I-MR)
-
-In regulated environments, **every removed point must have a documented process-
-level assignable cause** (e.g., equipment failure, operator error, raw material
-issue). Statistical flagging is necessary but not sufficient justification.
+A warning is raised in the UI when more than **20%** of observations are removed.
+This indicates the baseline period itself may have been unstable — the right
+response is to reselect the baseline period, not to keep removing points.
 
 ---
 

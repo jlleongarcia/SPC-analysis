@@ -13,7 +13,7 @@ from spc.core.rules import (
     apply_all_rules,
 )
 from spc.core.capability import compute_capability
-from spc.core.phase_i import run_phase_i
+from spc.core.phase_i import run_phase_i_pass
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -146,28 +146,52 @@ class TestCapability:
 # ─── Phase I engine ───────────────────────────────────────────────────────────
 
 class TestPhaseI:
-    def test_converges_on_stable_data(self, stable_series):
-        result = run_phase_i(stable_series)
-        assert result.converged
+    def test_no_violations_on_perfectly_stable_data(self):
+        # Perfectly alternating values at ±0.3σ: no runs, no trends,
+        # never near warning zone. Rule violations require cause (Oakland Ch. 4-5).
+        mean, s = 100.0, 2.0
+        vals = [mean + (0.3 * s if i % 2 == 0 else -0.3 * s) for i in range(30)]
+        result = run_phase_i_pass(pd.Series(vals, name="value"))
+        assert not result.any_violations
 
-    def test_removes_obvious_outlier(self, series_with_outlier):
-        result = run_phase_i(series_with_outlier)
-        assert result.n_total_removed >= 1
-        # The outlier index (25) must appear in the removal log
-        assert 25 in result.removal_log.index
+    def test_flags_obvious_outlier(self, series_with_outlier):
+        result = run_phase_i_pass(series_with_outlier)
+        assert result.any_violations
+        assert 25 in result.flagged_integer_indices
 
-    def test_audit_trail_columns(self, series_with_outlier):
-        result = run_phase_i(series_with_outlier)
-        required = {"iteration", "value", "rules_violated",
-                    "x_bar_at_removal", "ucl_at_removal", "lcl_at_removal"}
-        assert required.issubset(set(result.removal_log.reset_index().columns))
+    def test_original_labels_length_matches_values(self, stable_series):
+        result = run_phase_i_pass(stable_series)
+        assert len(result.original_labels) == len(result.values)
 
-    def test_max_iterations_cap(self):
-        # All points violate Rule 1 — should stop at max_iterations, not loop forever
-        s = pd.Series(np.arange(1, 51, dtype=float) * 10)
-        result = run_phase_i(s, max_iterations=3)
-        assert len(result.iterations) <= 3
+    def test_original_ilocs_length_matches_values(self, stable_series):
+        result = run_phase_i_pass(stable_series)
+        assert len(result.original_ilocs) == len(result.values)
 
-    def test_final_values_subset_of_original(self, series_with_outlier):
-        result = run_phase_i(series_with_outlier)
-        assert set(result.final_values.index).issubset(set(series_with_outlier.index))
+    def test_nan_excluded_from_pass(self):
+        s = pd.Series([1.0, np.nan, 2.0, 3.0, 4.0, 5.0])
+        result = run_phase_i_pass(s)
+        assert result.n_original == 5
+
+    def test_too_few_raises(self):
+        with pytest.raises(ValueError, match="At least 2"):
+            run_phase_i_pass(pd.Series([1.0]))
+
+    def test_rule_config_stored(self, stable_series):
+        result = run_phase_i_pass(stable_series, rule3_k=10)
+        assert result.rule_config["rule3_k"] == 10
+
+    def test_flagged_indices_valid_positions(self, series_with_outlier):
+        result = run_phase_i_pass(series_with_outlier)
+        for idx in result.flagged_integer_indices:
+            assert 0 <= idx < result.n_original
+
+    def test_date_string_index_preserved(self):
+        import pandas as pd
+        dates = pd.date_range("2024-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+        rng = np.random.default_rng(42)
+        s = pd.Series(rng.normal(100, 2, 30), index=dates, name="value")
+        result = run_phase_i_pass(s)
+        assert len(result.original_labels) == len(result.values)
+        # All original labels should be date strings
+        assert all(isinstance(lbl, str) for lbl in result.original_labels)
+
