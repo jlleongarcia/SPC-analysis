@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+
+# uv
+.venv/
+.uv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Ruff
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data files (keep examples, ignore user uploads)
+data/
+!data/examples/
+
+# Jupyter (if ever used for exploration)
+.ipynb_checkpoints/
+*.ipynb
