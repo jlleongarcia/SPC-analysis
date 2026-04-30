@@ -228,7 +228,6 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
             n_cross = sum(
                 1 for i in flagged_ints if str(pass1.original_labels[i]) in cross_info
             )
-            st.subheader(f"Flagged Points — {len(flagged_ints)} candidate(s) for review")
             if n_cross:
                 st.warning(
                     f"⚠️ **{n_cross} of these point(s)** were also removed from another variable.  "
@@ -242,50 +241,54 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
                     "real-world assignable cause.  **If you cannot, retain the point.**"
                 )
 
-            h = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
-            h[0].markdown("**Observation**")
-            h[1].markdown("**Value**")
-            h[2].markdown("**Rules Fired**")
-            h[3].markdown("**Remove?**")
-            h[4].markdown("**Assignable Cause** *(required to remove)*")
-            st.markdown("---")
-
+            expander_label = (
+                f"🔍 Review {len(flagged_ints)} flagged point(s)"
+                + (f"  — {n_cross} cross-flagged ⚠️" if n_cross else "")
+            )
             decisions: dict[int, dict] = {}
-            for int_idx in flagged_ints:
-                label     = pass1.original_labels[int_idx]
-                value     = float(pass1.values.iloc[int_idx])
-                row_viol  = pass1.individual_violations.iloc[int_idx]
-                rules     = [r for r in ["rule1", "rule2", "rule3", "rule4"]
-                             if bool(row_viol[r])]
-                if bool(pass1.mr_violations.iloc[int_idx]):
-                    rules.append("mr_rule1")
+            with st.expander(expander_label, expanded=False):
+                h = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
+                h[0].markdown("**Observation**")
+                h[1].markdown("**Value**")
+                h[2].markdown("**Rules Fired**")
+                h[3].markdown("**Remove?**")
+                h[4].markdown("**Assignable Cause** *(required to remove)*")
+                st.markdown("---")
+                for int_idx in flagged_ints:
+                    label     = pass1.original_labels[int_idx]
+                    value     = float(pass1.values.iloc[int_idx])
+                    row_viol  = pass1.individual_violations.iloc[int_idx]
+                    rules     = [r for r in ["rule1", "rule2", "rule3", "rule4"]
+                                 if bool(row_viol[r])]
+                    if bool(pass1.mr_violations.iloc[int_idx]):
+                        rules.append("mr_rule1")
 
-                lbl_str   = str(label)
-                is_cross  = lbl_str in cross_info
+                    lbl_str   = str(label)
+                    is_cross  = lbl_str in cross_info
 
-                # Pre-suggest removal if cross-flagged (only on first render)
-                if is_cross and f"chk__{col}__{int_idx}" not in st.session_state:
-                    st.session_state[f"chk__{col}__{int_idx}"] = True
+                    # Pre-suggest removal if cross-flagged (only on first render)
+                    if is_cross and f"chk__{col}__{int_idx}" not in st.session_state:
+                        st.session_state[f"chk__{col}__{int_idx}"] = True
 
-                rules_md = ", ".join(rules)
-                if is_cross:
-                    sources = ", ".join(cross_info[lbl_str])
-                    rules_md += f"  ⚠️ *suspect: removed from {sources}*"
+                    rules_md = ", ".join(rules)
+                    if is_cross:
+                        sources = ", ".join(cross_info[lbl_str])
+                        rules_md += f"  ⚠️ *suspect: removed from {sources}*"
 
-                row_cols = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
-                row_cols[0].write(lbl_str)
-                row_cols[1].write(f"{value:.4f}")
-                row_cols[2].markdown(rules_md)
-                remove = row_cols[3].checkbox(
-                    "remove", key=f"chk__{col}__{int_idx}",
-                    label_visibility="collapsed",
-                )
-                cause = row_cols[4].text_input(
-                    "cause", key=f"cause__{col}__{int_idx}",
-                    placeholder="e.g. Sensor fault on this date",
-                    label_visibility="collapsed",
-                )
-                decisions[int_idx] = {"remove": remove, "cause": cause}
+                    row_cols = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
+                    row_cols[0].write(lbl_str)
+                    row_cols[1].write(f"{value:.4f}")
+                    row_cols[2].markdown(rules_md)
+                    remove = row_cols[3].checkbox(
+                        "remove", key=f"chk__{col}__{int_idx}",
+                        label_visibility="collapsed",
+                    )
+                    cause = row_cols[4].text_input(
+                        "cause", key=f"cause__{col}__{int_idx}",
+                        placeholder="e.g. Sensor fault on this date",
+                        label_visibility="collapsed",
+                    )
+                    decisions[int_idx] = {"remove": remove, "cause": cause}
 
             st.divider()
             col_confirm, col_reset = st.columns([2, 6])

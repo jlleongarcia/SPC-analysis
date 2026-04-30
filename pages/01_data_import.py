@@ -39,7 +39,20 @@ if uploaded is not None:
     st.dataframe(df_raw.head(20), use_container_width=True)
 
     # ── Column selection ──────────────────────────────────────────────────────
+    # Primary: natively numeric dtypes
     numeric_cols = df_raw.select_dtypes(include="number").columns.tolist()
+    # Fallback: object columns where ≥80 % of values coerce to a number
+    # (handles CSVs with mixed text sentinels or European decimal formats)
+    # Datetime columns are explicitly skipped — they must never be treated as measurements.
+    _already = set(numeric_cols)
+    for _c in df_raw.columns:
+        if _c in _already:
+            continue
+        if pd.api.types.is_datetime64_any_dtype(df_raw[_c]):
+            continue
+        _converted = pd.to_numeric(df_raw[_c], errors="coerce")
+        if _converted.notna().mean() >= 0.8:
+            numeric_cols.append(_c)
     all_cols = df_raw.columns.tolist()
 
     if not numeric_cols:
@@ -47,18 +60,24 @@ if uploaded is not None:
         st.stop()
 
     col1, col2 = st.columns(2)
-    with col1:
-        value_cols = st.multiselect(
-            "Measurement column(s)",
-            options=numeric_cols,
-            default=[numeric_cols[0]],
-            help="Select one or more columns containing individual process measurements.",
-        )
     with col2:
         label_col = st.selectbox(
             "Observation label column (optional)",
             options=["— none —"] + all_cols,
             help="Date, batch ID, or sequence number. Used as the chart x-axis.",
+        )
+    # Exclude the chosen label column from measurement options — dates/IDs must
+    # not be analysed by SPC or normality tests.
+    meas_options = [c for c in numeric_cols if c != label_col]
+    if not meas_options:
+        st.error("No numeric measurement columns remain after excluding the label column.")
+        st.stop()
+    with col1:
+        value_cols = st.multiselect(
+            "Measurement column(s)",
+            options=meas_options,
+            default=meas_options,           # pre-select all eligible numeric columns
+            help="Select one or more columns containing individual process measurements.",
         )
 
     if not value_cols:
@@ -66,7 +85,8 @@ if uploaded is not None:
         st.stop()
 
     # ── Build labeled DataFrame ───────────────────────────────────────────────
-    df_labeled = df_raw[value_cols].copy()
+    # Coerce selected columns to numeric (handles object dtype from the fallback detection)
+    df_labeled = df_raw[value_cols].apply(pd.to_numeric, errors="coerce").copy()
     if label_col != "— none —":
         df_labeled.index = df_raw[label_col].astype(str)
         df_labeled.index.name = label_col
