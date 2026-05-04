@@ -156,3 +156,24 @@ def apply_mr_rule1(
     The LCL for a range chart is always 0, so only the upper limit is checked.
     """
     return mr_values > mr_ucl
+
+
+def apply_mr_rules(
+    mr_values: pd.Series,
+    mr_ucl: float,
+    mr_uwl: float,
+    *,
+    rule2_k: int = 2,
+    rule2_window: int = 3,
+) -> pd.Series:
+    """Rules 1 and 2 on the Moving Range chart; returns combined boolean Series.
+
+    Rule 1 — any MR point above UCL.
+    Rule 2 — k of *window* consecutive MR points in the warning zone (above UWL).
+    """
+    r1 = (mr_values > mr_ucl).fillna(False).astype(bool)
+    upper_zone = (mr_values > mr_uwl).astype(float)
+    r2 = (
+        upper_zone.rolling(rule2_window).sum() >= rule2_k
+    ).fillna(False).astype(bool)
+    return (r1 | r2)

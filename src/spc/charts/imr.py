@@ -20,8 +20,8 @@ COLORS = {
     "cl": "#2ca02c",            # green — centre line
     "warning": "#ff7f0e",       # orange — warning lines
     "action": "#d62728",        # red — action/control limits
-    "fill_warn": "rgba(255,127,14,0.08)",
-    "fill_action": "rgba(214,39,40,0.06)",
+    "fill_ctrl": "rgba(44,160,44,0.08)",    # green  — control zone  (CL ↔ WL)
+    "fill_warn": "rgba(255,127,14,0.10)",   # orange — warning zone  (WL ↔ AL)
 }
 
 
@@ -42,6 +42,7 @@ def build_individuals_chart(
     violations: pd.DataFrame | None = None,
     removed_values: pd.Series | None = None,
     title: str = "Individuals (I) Chart",
+    n_points: int | None = None,
 ) -> go.Figure:
     """Build an Individuals control chart.
 
@@ -61,28 +62,43 @@ def build_individuals_chart(
         Chart title string.
     """
     fig = go.Figure()
+
+    # ── Stats legend entries ────────────────────────────────────────────────
+    _n = n_points if n_points is not None else int(values.notna().sum())
+    _s = float(values.dropna().std(ddof=1))
+    for _name in [
+        f"n = {_n}",
+        f"X̄ = {limits['i_cl']:.4f}",
+        f"s = {_s:.4f}",
+    ]:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker={"opacity": 0, "size": 1},
+            showlegend=True, name=_name,
+        ))
+
     x = list(values.index)
     x_range = [x[0], x[-1]] if x else [0, 1]
 
     # ── Shaded zones ────────────────────────────────────────────────────────
-    # Action zone (UAL / LAL fill)
+    # Warning zone (between WL and AL) — orange
     fig.add_hrect(y0=limits["i_uwl"], y1=limits["i_ucl"],
-                  fillcolor=COLORS["fill_action"], line_width=0, layer="below")
+                  fillcolor=COLORS["fill_warn"], line_width=0, layer="below")
     fig.add_hrect(y0=limits["i_lcl"], y1=limits["i_lwl"],
-                  fillcolor=COLORS["fill_action"], line_width=0, layer="below")
-    # Warning zone fill
+                  fillcolor=COLORS["fill_warn"], line_width=0, layer="below")
+    # Control zone (between CL and WL) — green
     fig.add_hrect(y0=limits["i_cl"], y1=limits["i_uwl"],
-                  fillcolor=COLORS["fill_warn"], line_width=0, layer="below")
+                  fillcolor=COLORS["fill_ctrl"], line_width=0, layer="below")
     fig.add_hrect(y0=limits["i_lwl"], y1=limits["i_cl"],
-                  fillcolor=COLORS["fill_warn"], line_width=0, layer="below")
+                  fillcolor=COLORS["fill_ctrl"], line_width=0, layer="below")
 
     # ── Control lines ────────────────────────────────────────────────────────
     for y, name, color, dash in [
-        (limits["i_ucl"], "UAL (Action)", COLORS["action"], "dash"),
-        (limits["i_uwl"], "UWL (Warning)", COLORS["warning"], "dot"),
-        (limits["i_cl"],  "CL (Mean)",    COLORS["cl"],      "solid"),
-        (limits["i_lwl"], "LWL (Warning)", COLORS["warning"], "dot"),
-        (limits["i_lcl"], "LAL (Action)", COLORS["action"], "dash"),
+        (limits["i_ucl"], f"UAL = {limits['i_ucl']:.4f}",              COLORS["action"],  "dash"),
+        (limits["i_uwl"], f"UWL = {limits['i_uwl']:.4f}",              COLORS["warning"], "dot"),
+        (limits["i_cl"],  f"CL = X̄ = {limits['i_cl']:.4f}",           COLORS["cl"],      "solid"),
+        (limits["i_lwl"], f"LWL = {limits['i_lwl']:.4f}",              COLORS["warning"], "dot"),
+        (limits["i_lcl"], f"LAL = {limits['i_lcl']:.4f}",              COLORS["action"],  "dash"),
     ]:
         fig.add_trace(_limit_trace(y, x_range, name, color, dash))
 
@@ -98,36 +114,43 @@ def build_individuals_chart(
         ))
 
     # ── Data points ──────────────────────────────────────────────────────────
+    # Always draw one continuous line through ALL points in order so the
+    # chronological sequence is preserved regardless of violation status.
     if violations is not None:
-        ok_mask = (~violations["any_violation"]).to_numpy(dtype=bool)
         viol_mask = violations["any_violation"].to_numpy(dtype=bool)
 
+        # Continuous line + all markers (coloured per status)
+        marker_colors = [
+            COLORS["violation"] if v else COLORS["data"] for v in viol_mask
+        ]
         fig.add_trace(go.Scatter(
-            x=values[ok_mask].index.tolist(),
-            y=values[ok_mask].tolist(),
+            x=x,
+            y=list(values.values),
             mode="lines+markers",
             name="In control",
             line={"color": COLORS["data"], "width": 1.5},
-            marker={"color": COLORS["data"], "size": 7},
+            marker={"color": marker_colors, "size": 7},
         ))
+
+        # Overlay open-circle violation markers with hover text
         if viol_mask.any():
-            # Build hover text using positional access to avoid
-            # truth-value errors with date-string or duplicate indices.
             rule_cols = ["rule1", "rule2", "rule3", "rule4"]
             viol_arr = violations[rule_cols].to_numpy()
             vals_arr = values.to_numpy()
-            hover = []
-            for pos, is_viol in enumerate(viol_mask):  # viol_mask is already numpy bool
+            viol_x, viol_y, hover = [], [], []
+            for pos, is_viol in enumerate(viol_mask):
                 if not is_viol:
                     continue
+                viol_x.append(x[pos])
+                viol_y.append(float(vals_arr[pos]))
                 rules = [rule_cols[j] for j in range(4) if bool(viol_arr[pos, j])]
                 hover.append(f"Value: {vals_arr[pos]:.4g}<br>Rules: {', '.join(rules)}")
             fig.add_trace(go.Scatter(
-                x=values[viol_mask].index.tolist(),
-                y=values[viol_mask].tolist(),
+                x=viol_x,
+                y=viol_y,
                 mode="markers",
                 name="Violation",
-                marker={"color": COLORS["violation"], "size": 10, "symbol": "circle-open",
+                marker={"color": COLORS["violation"], "size": 12, "symbol": "circle-open",
                         "line": {"width": 2, "color": COLORS["violation"]}},
                 hovertext=hover,
                 hoverinfo="text",
@@ -146,6 +169,8 @@ def build_individuals_chart(
         xaxis=dict(
             title="Observation",
             type="category",
+            categoryorder="array",
+            categoryarray=x,
             tickangle=-45,
             nticks=20,
             automargin=True,
@@ -153,7 +178,12 @@ def build_individuals_chart(
         yaxis_title="Value",
         hovermode="x unified",
         template="plotly_white",
-        legend={"orientation": "h", "yanchor": "bottom", "y": -0.3},
+        legend={
+            "orientation": "v",
+            "xanchor": "left", "x": 1.02,
+            "yanchor": "top", "y": 1.0,
+        },
+        margin={"r": 200},
     )
     return fig
 
@@ -163,6 +193,7 @@ def build_mr_chart(
     limits: dict[str, float],
     mr_violations: pd.Series | None = None,
     title: str = "Moving Range (MR) Chart",
+    n_points: int | None = None,
 ) -> go.Figure:
     """Build a Moving Range control chart.
 
@@ -176,46 +207,64 @@ def build_mr_chart(
         Optional boolean Series where True marks MR > UCL.
     """
     fig = go.Figure()
+
+    # ── Stats legend entries ────────────────────────────────────────────────
+    _n_mr = n_points if n_points is not None else int(mr_values.notna().sum())
+    for _name in [
+        f"n = {_n_mr}",
+        f"MR̄ = {limits['mr_cl']:.4f}",
+        f"σ̂ within = {limits['sigma_within']:.4f}",
+    ]:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker={"opacity": 0, "size": 1},
+            showlegend=True, name=_name,
+        ))
+
     mr_clean = mr_values.dropna()
     x = list(mr_clean.index)
     x_range = [x[0], x[-1]] if x else [0, 1]
 
-    # Action zone shading
-    fig.add_hrect(y0=limits["mr_ucl"] * 0.9, y1=limits["mr_ucl"] * 1.1,
-                  fillcolor=COLORS["fill_action"], line_width=0, layer="below")
+    # Action zone shading (above UWL to UCL — capped at UAL)
+    fig.add_hrect(y0=limits["mr_uwl"], y1=limits["mr_ucl"],
+                  fillcolor=COLORS["fill_warn"], line_width=0, layer="below")
+    # Control zone shading (CL to UWL) — green
+    fig.add_hrect(y0=limits["mr_cl"], y1=limits["mr_uwl"],
+                  fillcolor=COLORS["fill_ctrl"], line_width=0, layer="below")
 
     # Control lines
-    fig.add_trace(_limit_trace(limits["mr_ucl"], x_range, "UAL (Action)", COLORS["action"]))
-    fig.add_trace(_limit_trace(limits["mr_cl"],  x_range, "MR-bar (CL)", COLORS["cl"], "solid"))
+    fig.add_trace(_limit_trace(limits["mr_ucl"], x_range, f"UAL = {limits['mr_ucl']:.4f}", COLORS["action"]))
+    fig.add_trace(_limit_trace(limits["mr_uwl"], x_range, f"UWL = {limits['mr_uwl']:.4f}", COLORS["warning"], "dot"))
+    fig.add_trace(_limit_trace(limits["mr_cl"],  x_range, f"CL = MR̄ = {limits['mr_cl']:.4f}", COLORS["cl"], "solid"))
 
     # Data
     if mr_violations is not None:
-        # Positional alignment: mr_violations has the same length as mr_values (pre-dropna).
-        # mr_clean = mr_values.dropna() removes NaN positions (first point by construction).
-        # Using numpy positional ops avoids reindex failures with duplicate labels and
-        # avoids Arrow-backend Index[bool_mask] errors.
+        # Align violations to mr_clean (dropna removes the first NaN by construction).
         valid_pos = mr_values.notna().to_numpy()
         viol_full = mr_violations.to_numpy(dtype=bool)
-        if len(viol_full) == len(valid_pos):
-            viol_np = viol_full[valid_pos]
-        else:
-            viol_np = np.zeros(len(mr_clean), dtype=bool)
-        ok_mask = ~viol_np
+        viol_np = viol_full[valid_pos] if len(viol_full) == len(valid_pos) else np.zeros(len(mr_clean), dtype=bool)
+
+        # One continuous line through all MR points in order
+        marker_colors = [
+            COLORS["violation"] if v else COLORS["data"] for v in viol_np
+        ]
         fig.add_trace(go.Scatter(
-            x=mr_clean[ok_mask].index.tolist(),
-            y=mr_clean[ok_mask].tolist(),
+            x=x,
+            y=list(mr_clean.values),
             mode="lines+markers",
             name="Moving Range",
             line={"color": COLORS["data"], "width": 1.5},
-            marker={"color": COLORS["data"], "size": 7},
+            marker={"color": marker_colors, "size": 7},
         ))
         if viol_np.any():
+            viol_x = [x[i] for i, v in enumerate(viol_np) if v]
+            viol_y = [float(mr_clean.iloc[i]) for i, v in enumerate(viol_np) if v]
             fig.add_trace(go.Scatter(
-                x=mr_clean[viol_np].index.tolist(),
-                y=mr_clean[viol_np].tolist(),
+                x=viol_x,
+                y=viol_y,
                 mode="markers",
-                name="MR Violation (Rule 1)",
-                marker={"color": COLORS["violation"], "size": 10, "symbol": "circle-open",
+                name="MR Violation (Rules 1/2)",
+                marker={"color": COLORS["violation"], "size": 12, "symbol": "circle-open",
                         "line": {"width": 2, "color": COLORS["violation"]}},
             ))
     else:
@@ -231,6 +280,8 @@ def build_mr_chart(
         xaxis=dict(
             title="Observation",
             type="category",
+            categoryorder="array",
+            categoryarray=x,
             tickangle=-45,
             nticks=20,
             automargin=True,
@@ -238,7 +289,12 @@ def build_mr_chart(
         yaxis_title="Moving Range",
         hovermode="x unified",
         template="plotly_white",
-        legend={"orientation": "h", "yanchor": "bottom", "y": -0.3},
+        legend={
+            "orientation": "v",
+            "xanchor": "left", "x": 1.02,
+            "yanchor": "top", "y": 1.0,
+        },
+        margin={"r": 200},
     )
     return fig
 

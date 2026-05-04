@@ -90,7 +90,8 @@ def compute_limits(
         "i_cl": x_bar,
         "i_lwl": x_bar - 2 * sigma,
         "i_lcl": x_bar - 3 * sigma,
-        # MR chart lines
+        # MR chart lines  (UWL = 2/3 of the way from CL to UCL)
         "mr_ucl": D4 * mr_bar,
+        "mr_uwl": mr_bar * (1 + (2 / 3) * (D4 - 1)),
         "mr_cl": mr_bar,
     }

@@ -22,8 +22,8 @@ import streamlit as st
 
 from spc.core import normality_check, run_phase_i_pass, PhaseIResult
 from spc.core.limits import compute_moving_range
-from spc.core.rules import apply_all_rules, apply_mr_rule1
-from spc.charts import build_imr_panel
+from spc.core.rules import apply_all_rules, apply_mr_rules
+from spc.charts import build_individuals_chart, build_mr_chart
 
 st.header("🔄 Phase I Study")
 
@@ -200,14 +200,23 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
         mr = pass1.mr.copy()
         mr.index = pass1.original_labels
 
-        st.subheader("Pass 1 — I-MR Chart")
-        fig = build_imr_panel(
-            vals, mr, lim,
+        st.subheader("Pass 1 — Individuals (I) Chart")
+        i_fig = build_individuals_chart(
+            vals, lim,
             violations=pass1.individual_violations,
-            mr_violations=pass1.mr_violations,
-            title=f"Pass 1 — {col}",
+            title=f"Pass 1 — {col} — Individuals",
+            n_points=pass1.n_original,
         )
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(i_fig, width='stretch')
+
+        st.subheader("Pass 1 — Moving Range (MR) Chart")
+        mr_fig = build_mr_chart(
+            mr, lim,
+            mr_violations=pass1.mr_violations,
+            title=f"Pass 1 — {col} — Moving Range",
+            n_points=int(mr.notna().sum()),
+        )
+        st.plotly_chart(mr_fig, width='stretch')
 
         with st.expander("Control lines (Pass 1)", expanded=False):
             lim_df = pd.DataFrame({
@@ -392,16 +401,25 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
             rule3_k=result.rule_config["rule3_k"],
             rule4_k=result.rule_config["rule4_k"],
         )
-        final_mr_viol = apply_mr_rule1(final_mr, lim["mr_ucl"])
+        final_mr_viol = apply_mr_rules(final_mr, lim["mr_ucl"], lim["mr_uwl"])
 
-        st.subheader(f"Final I-MR Chart (Pass {result.n_passes})")
-        fig = build_imr_panel(
-            final_vals, final_mr, lim,
+        st.subheader(f"Final — Individuals (I) Chart (Pass {result.n_passes})")
+        i_fig = build_individuals_chart(
+            final_vals, lim,
             violations=final_viol,
-            mr_violations=final_mr_viol,
-            title=f"Certified Baseline — {col} (Pass {result.n_passes})",
+            title=f"Certified Baseline — {col} (Pass {result.n_passes}) — Individuals",
+            n_points=result.n_final,
         )
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(i_fig, width='stretch')
+
+        st.subheader(f"Final — Moving Range (MR) Chart (Pass {result.n_passes})")
+        mr_fig = build_mr_chart(
+            final_mr, lim,
+            mr_violations=final_mr_viol,
+            title=f"Certified Baseline — {col} (Pass {result.n_passes}) — Moving Range",
+            n_points=int(final_mr.notna().sum()),
+        )
+        st.plotly_chart(mr_fig, width='stretch')
 
         st.divider()
         st.success("Navigate to **Final Charts**, **Capability**, or **Audit Trail** to continue.")

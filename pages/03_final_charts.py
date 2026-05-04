@@ -10,7 +10,7 @@ import streamlit as st
 
 from spc.charts import build_individuals_chart, build_mr_chart
 from spc.core.limits import compute_moving_range
-from spc.core.rules import apply_all_rules, apply_mr_rule1
+from spc.core.rules import apply_all_rules, apply_mr_rules
 
 st.header("📈 Final I-MR Charts")
 
@@ -46,7 +46,7 @@ def _render_charts(col: str) -> None:
         rule3_k=result.rule_config["rule3_k"],
         rule4_k=result.rule_config["rule4_k"],
     )
-    mr_violations = apply_mr_rule1(mr, lim["mr_ucl"])
+    mr_violations = apply_mr_rules(mr, lim["mr_ucl"], lim["mr_uwl"])
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("N (final)",   f"{result.n_final}")
@@ -61,6 +61,7 @@ def _render_charts(col: str) -> None:
     i_fig = build_individuals_chart(
         values, lim, violations,
         title=f"Individuals Chart — Final Verified Limits ({col})",
+        n_points=result.n_final,
     )
     st.plotly_chart(i_fig, width='stretch')
 
@@ -68,6 +69,7 @@ def _render_charts(col: str) -> None:
     mr_fig = build_mr_chart(
         mr, lim, mr_violations,
         title=f"Moving Range Chart — Final Verified Limits ({col})",
+        n_points=int(mr.notna().sum()),
     )
     st.plotly_chart(mr_fig, width='stretch')
 

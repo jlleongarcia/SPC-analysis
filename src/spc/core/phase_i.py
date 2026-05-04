@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from spc.core.limits import compute_limits, compute_moving_range
-from spc.core.rules import apply_all_rules, apply_mr_rule1
+from spc.core.rules import apply_all_rules, apply_mr_rules
 
 
 @dataclass
@@ -145,7 +145,7 @@ def run_phase_i_pass(
         rule2_k=rule2_k, rule2_window=rule2_window,
         rule3_k=rule3_k, rule4_k=rule4_k,
     )
-    mr_violations = apply_mr_rule1(mr, limits["mr_ucl"]).fillna(False)
+    mr_violations = apply_mr_rules(mr, limits["mr_ucl"], limits["mr_uwl"]).fillna(False)
 
     return PassResult(
         values=clean,
