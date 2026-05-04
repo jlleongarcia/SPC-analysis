@@ -62,14 +62,14 @@ def _render_charts(col: str) -> None:
         values, lim, violations,
         title=f"Individuals Chart — Final Verified Limits ({col})",
     )
-    st.plotly_chart(i_fig, use_container_width=True)
+    st.plotly_chart(i_fig, width='stretch')
 
     st.subheader("Moving Range (MR) Chart — Final")
     mr_fig = build_mr_chart(
         mr, lim, mr_violations,
         title=f"Moving Range Chart — Final Verified Limits ({col})",
     )
-    st.plotly_chart(mr_fig, use_container_width=True)
+    st.plotly_chart(mr_fig, width='stretch')
 
     st.subheader("Final Control Lines")
     lim_df = pd.DataFrame({
@@ -82,7 +82,7 @@ def _render_charts(col: str) -> None:
             lim["mr_ucl"], lim["mr_cl"],
         ],
     })
-    st.dataframe(lim_df.style.format({"Value": "{:.6f}"}), use_container_width=True)
+    st.dataframe(lim_df.style.format({"Value": "{:.6f}"}), width='stretch')
 
     remaining = int(violations["any_violation"].sum())
     if remaining:

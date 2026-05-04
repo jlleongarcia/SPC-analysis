@@ -36,7 +36,7 @@ if uploaded is not None:
         st.stop()
 
     st.success(f"Loaded {len(df_raw):,} rows × {len(df_raw.columns)} columns.")
-    st.dataframe(df_raw.head(20), use_container_width=True)
+    st.dataframe(df_raw.head(20), width='stretch')
 
     # ── Column selection ──────────────────────────────────────────────────────
     # Primary: natively numeric dtypes

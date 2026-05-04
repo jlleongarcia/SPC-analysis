@@ -194,7 +194,7 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
             mr_violations=pass1.mr_violations,
             title=f"Pass 1 — {col}",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         with st.expander("Control lines (Pass 1)", expanded=False):
             lim_df = pd.DataFrame({
@@ -206,7 +206,7 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
                     lim["mr_ucl"], lim["mr_cl"],
                 ],
             })
-            st.dataframe(lim_df.style.format({"Value": "{:.4f}"}), use_container_width=True)
+            st.dataframe(lim_df.style.format({"Value": "{:.4f}"}), width='stretch')
 
         st.divider()
         flagged_ints = pass1.flagged_integer_indices
@@ -388,7 +388,7 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
             mr_violations=final_mr_viol,
             title=f"Certified Baseline — {col} (Pass {result.n_passes})",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         st.divider()
         st.success("Navigate to **Final Charts**, **Capability**, or **Audit Trail** to continue.")
@@ -440,7 +440,7 @@ if len(value_cols) >= 2:
                 {"Observation": lbl, "Removed from": ", ".join(cols)}
                 for lbl, cols in sorted(shared.items())
             ])
-            st.dataframe(cross_df, use_container_width=True)
+            st.dataframe(cross_df, width='stretch')
         else:
             st.info("No observations were removed from more than one variable simultaneously.")
 

@@ -88,7 +88,7 @@ def _render_variable_audit(col: str) -> None:
             .apply(_highlight, axis=1)
             .format({"Value": "{:.4f}", "X̄ (at review)": "{:.4f}",
                      "UAL (at review)": "{:.4f}", "LAL (at review)": "{:.4f}"}),
-        use_container_width=True,
+        width='stretch',
     )
 
     st.divider()
@@ -163,7 +163,7 @@ if len(completed) >= 2:
                 {"Observation": obs, "Removed from": ", ".join(cols)}
                 for obs, cols in shared.items()
             ])
-            st.dataframe(shared_df, use_container_width=True)
+            st.dataframe(shared_df, width='stretch')
 
         st.markdown("**All decisions across all variables:**")
 
@@ -174,7 +174,7 @@ if len(completed) >= 2:
 
         st.dataframe(
             combined.style.apply(_highlight_multi, axis=1),
-            use_container_width=True,
+            width='stretch',
         )
 
         full_csv = combined.to_csv(index=False).encode("utf-8")
