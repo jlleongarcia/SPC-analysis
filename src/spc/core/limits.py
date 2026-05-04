@@ -36,7 +36,11 @@ def compute_moving_range(values: pd.Series) -> pd.Series:
     return values.diff().abs()
 
 
-def compute_limits(values: pd.Series) -> dict[str, float]:
+def compute_limits(
+    values: pd.Series,
+    *,
+    mr_mask: "np.ndarray | None" = None,
+) -> dict[str, float]:
     """Compute all control lines for an I-MR chart pair.
 
     Parameters
@@ -44,6 +48,12 @@ def compute_limits(values: pd.Series) -> dict[str, float]:
     values:
         Ordered series of individual measurements.  NaN entries are excluded
         before computation.
+    mr_mask:
+        Optional boolean array of length ``len(values.dropna())``.  When
+        provided, only moving ranges where ``mr_mask[j]`` is *True* are
+        included in the MR-bar computation.  Use this to exclude "bridging"
+        MRs — i.e. MRs computed between observations that were not originally
+        adjacent because one or more points were removed between them.
 
     Returns
     -------
@@ -56,10 +66,18 @@ def compute_limits(values: pd.Series) -> dict[str, float]:
     if len(clean) < 2:
         raise ValueError("At least 2 non-NaN values are required to compute limits.")
 
-    mr = compute_moving_range(clean).dropna()
+    mr = compute_moving_range(clean)
+
+    if mr_mask is not None:
+        mask = np.asarray(mr_mask, dtype=bool)
+        mr_for_bar = mr[mask & mr.notna()]
+        if len(mr_for_bar) == 0:
+            mr_for_bar = mr.dropna()   # fallback: use all if mask excludes everything
+    else:
+        mr_for_bar = mr.dropna()
 
     x_bar: float = float(clean.mean())
-    mr_bar: float = float(mr.mean())
+    mr_bar: float = float(mr_for_bar.mean())
     sigma: float = mr_bar / D2  # within-subgroup (short-term) std dev estimate
 
     return {

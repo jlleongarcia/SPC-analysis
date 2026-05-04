@@ -92,6 +92,7 @@ class PhaseIResult:
 def run_phase_i_pass(
     values: pd.Series,
     *,
+    mr_mask: "np.ndarray | None" = None,
     rule2_k: int = 2,
     rule2_window: int = 3,
     rule3_k: int = 8,
@@ -136,7 +137,7 @@ def run_phase_i_pass(
     if n_original < 2:
         raise ValueError("At least 2 non-NaN observations are required.")
 
-    limits = compute_limits(clean)
+    limits = compute_limits(clean, mr_mask=mr_mask)
     mr = compute_moving_range(clean)
 
     ind_violations = apply_all_rules(

@@ -132,8 +132,21 @@ def _finalise(
             i not in ilocs_to_remove for i in range(len(raw_series))
         ])
         clean_raw = raw_series.iloc[keep_mask]
+
+        # Build a boolean mask that marks which moving ranges in Pass 2 are
+        # "bridging" — i.e. computed between observations that were NOT
+        # originally adjacent because a removed point sat between them.
+        # Those MRs must be excluded from mr_bar so that sigma_within is
+        # estimated purely from validated, originally-adjacent pairs.
+        remove_ranks = set(to_remove_ints)
+        kept_ranks = [r for r in range(len(pass1.original_ilocs)) if r not in remove_ranks]
+        mr_valid_mask = np.array([
+            j == 0 or kept_ranks[j] - kept_ranks[j - 1] == 1
+            for j in range(len(kept_ranks))
+        ])
+
         with st.spinner("Running Pass 2…"):
-            pass2 = run_phase_i_pass(clean_raw, **pass1.rule_config)
+            pass2 = run_phase_i_pass(clean_raw, mr_mask=mr_valid_mask, **pass1.rule_config)
         result = PhaseIResult(
             final_values=pass2.values,
             final_mr=compute_moving_range(pass2.values),
