@@ -309,7 +309,7 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
                         })
                     st.dataframe(
                         pd.DataFrame(summary_rows),
-                        use_container_width=False,
+                        width='content',
                         hide_index=True,
                     )
 
