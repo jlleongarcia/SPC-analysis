@@ -30,6 +30,7 @@ htmlcov/
 .DS_Store
 Thumbs.db
 desktop.ini
+*.bat
 
 # IDEs
 .vscode/
