@@ -64,8 +64,8 @@ def rule2_warning_zone(
     upper_zone = (values > uwl).astype(int)
     lower_zone = (values < lwl).astype(int)
 
-    upper_violation = upper_zone.rolling(window).sum() >= k
-    lower_violation = lower_zone.rolling(window).sum() >= k
+    upper_violation = (upper_zone.rolling(window).sum() >= k) & (values > uwl)
+    lower_violation = (lower_zone.rolling(window).sum() >= k) & (values < lwl)
 
     return (upper_violation | lower_violation).fillna(False).astype(bool)
 
@@ -174,6 +174,7 @@ def apply_mr_rules(
     r1 = (mr_values > mr_ucl).fillna(False).astype(bool)
     upper_zone = (mr_values > mr_uwl).astype(float)
     r2 = (
-        upper_zone.rolling(rule2_window).sum() >= rule2_k
+        (upper_zone.rolling(rule2_window).sum() >= rule2_k)
+        & (mr_values > mr_uwl)
     ).fillna(False).astype(bool)
     return (r1 | r2)
