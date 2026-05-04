@@ -268,49 +268,102 @@ def _render_variable(col: str, raw_series: pd.Series) -> None:
                 + (f"  — {n_cross} cross-flagged ⚠️" if n_cross else "")
             )
             decisions: dict[int, dict] = {}
-            with st.expander(expander_label, expanded=False):
-                h = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
-                h[0].markdown("**Observation**")
-                h[1].markdown("**Value**")
-                h[2].markdown("**Rules Fired**")
-                h[3].markdown("**Remove?**")
-                h[4].markdown("**Assignable Cause** *(required to remove)*")
-                st.markdown("---")
-                for int_idx in flagged_ints:
-                    label     = pass1.original_labels[int_idx]
-                    value     = float(pass1.values.iloc[int_idx])
-                    row_viol  = pass1.individual_violations.iloc[int_idx]
-                    rules     = [r for r in ["rule1", "rule2", "rule3", "rule4"]
-                                 if bool(row_viol[r])]
-                    if bool(pass1.mr_violations.iloc[int_idx]):
-                        rules.append("mr_rule1")
+            with st.expander(expander_label, expanded=True):
 
-                    lbl_str   = str(label)
-                    is_cross  = lbl_str in cross_info
+                # ── Bulk-remove toggle ─────────────────────────────────────
+                bulk_col1, bulk_col2 = st.columns([1, 5])
+                select_all = bulk_col1.toggle(
+                    "Remove all flagged points",
+                    key=f"select_all__{col}",
+                )
 
-                    # Pre-suggest removal if cross-flagged (only on first render)
-                    if is_cross and f"chk__{col}__{int_idx}" not in st.session_state:
+                if select_all:
+                    # Sync individual checkboxes so per-point widgets are consistent
+                    for int_idx in flagged_ints:
                         st.session_state[f"chk__{col}__{int_idx}"] = True
 
-                    rules_md = ", ".join(rules)
-                    if is_cross:
-                        sources = ", ".join(cross_info[lbl_str])
-                        rules_md += f"  ⚠️ *suspect: removed from {sources}*"
+                    bulk_cause = bulk_col2.text_input(
+                        "Bulk assignable cause *(applied to all removed points)*",
+                        key=f"bulk_cause__{col}",
+                        placeholder="e.g. Systematic sensor drift confirmed by maintenance log",
+                    )
 
-                    row_cols = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
-                    row_cols[0].write(lbl_str)
-                    row_cols[1].write(f"{value:.4f}")
-                    row_cols[2].markdown(rules_md)
-                    remove = row_cols[3].checkbox(
-                        "remove", key=f"chk__{col}__{int_idx}",
-                        label_visibility="collapsed",
+                    # Summary table (read-only) when bulk mode is active
+                    st.markdown("---")
+                    summary_rows = []
+                    for int_idx in flagged_ints:
+                        lbl     = pass1.original_labels[int_idx]
+                        val     = float(pass1.values.iloc[int_idx])
+                        rv      = pass1.individual_violations.iloc[int_idx]
+                        rules   = [r for r in ["rule1", "rule2", "rule3", "rule4"] if bool(rv[r])]
+                        if bool(pass1.mr_violations.iloc[int_idx]):
+                            rules.append("mr_rule1")
+                        lbl_str = str(lbl)
+                        cross_note = ""
+                        if lbl_str in cross_info:
+                            cross_note = f"⚠️ also in: {', '.join(cross_info[lbl_str])}"
+                        summary_rows.append({
+                            "Observation": lbl_str,
+                            "Value":       f"{val:.4f}",
+                            "Rules":       ", ".join(rules) + (f"  {cross_note}" if cross_note else ""),
+                        })
+                    st.dataframe(
+                        pd.DataFrame(summary_rows),
+                        use_container_width=False,
+                        hide_index=True,
                     )
-                    cause = row_cols[4].text_input(
-                        "cause", key=f"cause__{col}__{int_idx}",
-                        placeholder="e.g. Sensor fault on this date",
-                        label_visibility="collapsed",
-                    )
-                    decisions[int_idx] = {"remove": remove, "cause": cause}
+
+                    for int_idx in flagged_ints:
+                        decisions[int_idx] = {"remove": True, "cause": bulk_cause}
+
+                else:
+                    # Per-point individual table
+                    for int_idx in flagged_ints:
+                        st.session_state.setdefault(f"chk__{col}__{int_idx}", False)
+
+                    st.markdown("---")
+                    h = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
+                    h[0].markdown("**Observation**")
+                    h[1].markdown("**Value**")
+                    h[2].markdown("**Rules Fired**")
+                    h[3].markdown("**Remove?**")
+                    h[4].markdown("**Assignable Cause** *(required to remove)*")
+                    st.markdown("---")
+                    for int_idx in flagged_ints:
+                        label     = pass1.original_labels[int_idx]
+                        value     = float(pass1.values.iloc[int_idx])
+                        row_viol  = pass1.individual_violations.iloc[int_idx]
+                        rules     = [r for r in ["rule1", "rule2", "rule3", "rule4"]
+                                     if bool(row_viol[r])]
+                        if bool(pass1.mr_violations.iloc[int_idx]):
+                            rules.append("mr_rule1")
+
+                        lbl_str  = str(label)
+                        is_cross = lbl_str in cross_info
+
+                        # Pre-suggest removal if cross-flagged (only on first render)
+                        if is_cross and f"chk__{col}__{int_idx}" not in st.session_state:
+                            st.session_state[f"chk__{col}__{int_idx}"] = True
+
+                        rules_md = ", ".join(rules)
+                        if is_cross:
+                            sources = ", ".join(cross_info[lbl_str])
+                            rules_md += f"  ⚠️ *suspect: removed from {sources}*"
+
+                        row_cols = st.columns([2.5, 1.5, 2.5, 0.8, 3.7])
+                        row_cols[0].write(lbl_str)
+                        row_cols[1].write(f"{value:.4f}")
+                        row_cols[2].markdown(rules_md)
+                        remove = row_cols[3].checkbox(
+                            "remove", key=f"chk__{col}__{int_idx}",
+                            label_visibility="collapsed",
+                        )
+                        cause = row_cols[4].text_input(
+                            "cause", key=f"cause__{col}__{int_idx}",
+                            placeholder="e.g. Sensor fault on this date",
+                            label_visibility="collapsed",
+                        )
+                        decisions[int_idx] = {"remove": remove, "cause": cause}
 
             st.divider()
             col_confirm, col_reset = st.columns([2, 6])
